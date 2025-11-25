@@ -22,7 +22,7 @@ The script streams NDJSON from the public Lichess API and prints:
 - Opponent rating avg per speed, rating buckets, and top-3 rated wins
 - Activity heatmap counts (month, weekday) and longest inactivity gap
 - Ending types (mate, resign, stalemate, timeouts, aborted, draws)
-- If `--token` is provided: puzzle rating (start/end/peak) and puzzles attempted in the year (best-effort)
+- If `--token` is provided: puzzles attempted in the year
 
 Authentication is not needed for public data; add `--token` to include private games and puzzles.
 
