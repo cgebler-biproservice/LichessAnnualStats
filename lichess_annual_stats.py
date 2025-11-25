@@ -17,9 +17,11 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from typing import Optional
 
 
 LICHESS_API_BASE = "https://lichess.org/api/games/user"
+LICHESS_USER_BASE = "https://lichess.org/api/user"
 
 
 def _year_bounds_ms(year: int) -> tuple[int, int]:
@@ -29,7 +31,7 @@ def _year_bounds_ms(year: int) -> tuple[int, int]:
     return int(start.timestamp() * 1000), int(end.timestamp() * 1000)
 
 
-def fetch_game_stats(username: str, year: int) -> dict:
+def fetch_game_stats(username: str, year: int, token: Optional[str] = None) -> dict:
     """Stream all games for the user in the given year and return aggregate counts."""
     since_ms, until_ms = _year_bounds_ms(year)
     query = {
@@ -46,6 +48,8 @@ def fetch_game_stats(username: str, year: int) -> dict:
 
     request = urllib.request.Request(url)
     request.add_header("Accept", "application/x-ndjson")
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
 
     stats: dict[str, object] = {
         "total": 0,
@@ -228,7 +232,66 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=2025,
         help="Year to summarize (default: 2025)",
     )
+    parser.add_argument(
+        "--token",
+        help="Optional Lichess API token (enables private games and puzzle stats)",
+    )
     return parser.parse_args(argv)
+
+
+def fetch_puzzle_stats(username: str, year: int, token: Optional[str]) -> Optional[dict]:
+    """Fetch puzzle rating history and yearly puzzle attempts (requires token)."""
+    if not token:
+        return None
+
+    result: dict[str, object] = {}
+    # Rating history summary (start/end/peak)
+    rating_url = f"{LICHESS_USER_BASE}/{urllib.parse.quote(username)}/rating-history"
+    rating_req = urllib.request.Request(rating_url)
+    rating_req.add_header("Accept", "application/json")
+    rating_req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(rating_req) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        puzzle_block = next((b for b in data if b.get("name") == "Puzzle"), None)
+        points = (puzzle_block or {}).get("points") or []
+        ratings = [p[3] for p in points if len(p) >= 4]
+        if ratings:
+            result["rating"] = {
+                "start": ratings[0],
+                "end": ratings[-1],
+                "peak": max(ratings),
+                "points": len(ratings),
+            }
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        pass
+
+    # Puzzle attempts in the year (best-effort)
+    since_ms, until_ms = _year_bounds_ms(year)
+    activity_url = f"https://lichess.org/api/puzzle/activity?since={since_ms}&until={until_ms}"
+    activity_req = urllib.request.Request(activity_url)
+    activity_req.add_header("Accept", "application/x-ndjson")
+    activity_req.add_header("Authorization", f"Bearer {token}")
+    attempts = 0
+    try:
+        with urllib.request.urlopen(activity_req) as resp:
+            for raw in resp:
+                if not raw.strip():
+                    continue
+                try:
+                    json.loads(raw.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                attempts += 1
+        result["attempts"] = attempts
+    except urllib.error.HTTPError:
+        if result:
+            result.setdefault("attempts", None)
+    except urllib.error.URLError:
+        if result:
+            result.setdefault("attempts", None)
+
+    return result if result else None
 
 
 def main(argv: list[str]) -> int:
@@ -239,7 +302,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     try:
-        stats = fetch_game_stats(username, args.year)
+        stats = fetch_game_stats(username, args.year, args.token)
     except RuntimeError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -319,6 +382,24 @@ def main(argv: list[str]) -> int:
 
     print("\nFair play-ish:")
     print(f"  Aborted/expired games: {endings.get('aborted', 0)}")
+
+    if args.token:
+        puzzle = fetch_puzzle_stats(username, args.year, args.token)
+        print("\nPuzzles (needs token):")
+        if puzzle:
+            rating = puzzle.get("rating")
+            attempts = puzzle.get("attempts")
+            if rating:
+                print(
+                    f"  Rating start/end/peak: {rating['start']} / {rating['end']} / {rating['peak']} "
+                    f"(data points: {rating['points']})"
+                )
+            if attempts is not None:
+                print(f"  Puzzles attempted in {args.year}: {attempts}")
+            else:
+                print(f"  Puzzles attempted in {args.year}: not available")
+        else:
+            print("  No puzzle data available (check token or activity).")
     return 0
 
 

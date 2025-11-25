@@ -14,6 +14,7 @@ python3 lichess_annual_stats.py --year 2025
 Options:
 - `--username`: Lichess handle (prompts if omitted)
 - `--year`: Target year (default: 2025)
+- `--token`: Optional Lichess API token (enables private games and puzzle stats)
 
 The script streams NDJSON from the public Lichess API and prints:
 - Total games and speed breakdown (bullet, blitz, rapid, classical)
@@ -21,5 +22,8 @@ The script streams NDJSON from the public Lichess API and prints:
 - Opponent rating avg per speed, rating buckets, and top-3 rated wins
 - Activity heatmap counts (month, weekday) and longest inactivity gap
 - Ending types (mate, resign, stalemate, timeouts, aborted, draws)
+- If `--token` is provided: puzzle rating (start/end/peak) and puzzles attempted in the year (best-effort)
 
-Authentication is not needed for public data.
+Authentication is not needed for public data; add `--token` to include private games and puzzles.
+
+To create a token: visit https://lichess.org/account/oauth/token, choose a description, set an expiry if desired, and grant the `puzzle:read` scope (and any others you need). Then pass it via `--token <your_token>`. Keep it private.
